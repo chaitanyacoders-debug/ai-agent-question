@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Question Paper Generator</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <style>
+    .spinner {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #3498db;
+      border-radius: 50%;
+      width: 30px;
+      height: 30px;
+      animation: spin 1s linear infinite;
+      margin: auto;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    pre {
+      background: #f7f7f9;
+      border: 1px solid #e0e0e0;
+      padding: 8px;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-family: "Courier New", monospace;
+      font-size: 0.9rem;
+      margin-top: 4px;
+      margin-bottom: 4px;
+    }
+  </style>
+</head>
+
+<body class="bg-gray-100 flex justify-center py-10">
+
+<div class="w-full max-w-3xl bg-white shadow-lg rounded-lg p-8">
+  <h1 class="text-3xl font-bold text-center mb-6 text-blue-700">AI Question Paper Generator</h1>
+
+  <!-- FORM -->
+  <form id="questionForm" class="space-y-4">
+    <input id="organization" type="text" placeholder="Organization Name" required class="w-full border rounded-lg p-2" />
+    <input id="subject" type="text" placeholder="Subject (e.g., Python)" required class="w-full border rounded-lg p-2" />
+    <input id="subtopic" type="text" placeholder="Subtopic (e.g., Lists, Decorators...)" required class="w-full border rounded-lg p-2" />
+
+    <select id="level" class="w-full border rounded-lg p-2">
+      <option value="Easy">Easy</option>
+      <option value="Medium" selected>Medium</option>
+      <option value="Hard">Hard</option>
+    </select>
+
+    <input id="num_questions" type="number" placeholder="Number of Questions" min="1" required class="w-full border rounded-lg p-2" />
+
+    <button id="generateBtn" type="submit" class="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition">
+      Generate Paper
+    </button>
+
+    <div id="loading" class="hidden mt-4 text-center">
+      <div class="spinner"></div>
+      <p class="text-gray-600 mt-2">Generating questions, please wait...</p>
+    </div>
+  </form>
+
+  <!-- Preview Section -->
+  <div id="previewSection" class="hidden mt-6">
+    <h2 class="text-xl font-bold mb-3 text-center">Preview</h2>
+    <div id="previewContent" class="border rounded-lg p-4 max-h-96 overflow-y-auto bg-gray-50 text-gray-800"></div>
+
+    <button id="downloadBtn" class="mt-4 w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition">
+      Download PDF
+    </button>
+  </div>
+</div>
+
+<script>
+const form = document.getElementById("questionForm");
+const loading = document.getElementById("loading");
+const previewSection = document.getElementById("previewSection");
+const previewContent = document.getElementById("previewContent");
+const downloadBtn = document.getElementById("downloadBtn");
+const btn = document.getElementById("generateBtn");
+
+let latestData = null;
+
+// Detect code blocks (``` or indented) and format them as <pre><code>
+function formatQuestionWithCode(text) {
+  // Replace triple backtick blocks with <pre><code>
+  return text
+    .replace(/```[a-zA-Z]*\n([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
+    .replace(/\n/g, '<br>');
+}
+
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  const payload = {
+    organization: document.getElementById("organization").value.trim(),
+    subject: document.getElementById("subject").value.trim(),
+    subtopic: document.getElementById("subtopic").value.trim(),
+    level: document.getElementById("level").value,
+    num_questions: parseInt(document.getElementById("num_questions").value),
+  };
+
+  loading.classList.remove("hidden");
+  btn.disabled = true;
+  previewSection.classList.add("hidden");
+
+  try {
+    const res = await fetch("http://127.0.0.1:5000/api/generate-paper", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json();
+    if (!Array.isArray(data.questions)) {
+      alert("Unexpected response from backend.");
+      return;
+    }
+
+    latestData = data;
+    showPreview(data);
+
+  } catch (err) {
+    console.error(err);
+    alert("Error generating paper: " + err);
+  } finally {
+    loading.classList.add("hidden");
+    btn.disabled = false;
+  }
+});
+
+function showPreview(data) {
+  previewSection.classList.remove("hidden");
+
+  let html = `<h3 class="text-center font-bold text-lg mb-1">${data.organization}</h3>`;
+  html += `<p class="text-center text-sm mb-3">Subject: ${data.subject} | Subtopic: ${data.subtopic} | Level: ${data.level}</p>`;
+  data.questions.forEach((q, i) => {
+    html += `<div class="mb-3"><strong>${i + 1}.</strong> ${formatQuestionWithCode(q.question)}`;
+    if (Array.isArray(q.options)) {
+      html += "<ul class='ml-6 list-disc'>";
+      q.options.forEach(opt => html += `<li>${opt}</li>`);
+      html += "</ul>";
+    }
+    html += "</div>";
+  });
+
+  previewContent.innerHTML = html;
+}
+
+// PDF generation with code formatting
+downloadBtn.addEventListener("click", () => {
+  if (!latestData) return alert("No data available to download.");
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  let y = 20;
+  const lineHeight = 6;
+  const pageHeight = 280;
+
+  // Centered Heading
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(18);
+  doc.text(latestData.organization, 105, y, { align: "center" });
+  y += lineHeight + 4;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(12);
+  doc.text(`Subject: ${latestData.subject} | Subtopic: ${latestData.subtopic} | Level: ${latestData.level}`, 105, y, { align: "center" });
+  y += lineHeight + 6;
+
+  latestData.questions.forEach((q, i) => {
+    const questionText = `${i + 1}. ${q.question.replace(/```[\s\S]*?```/g, '').trim()}`;
+    const questionLines = doc.splitTextToSize(questionText, 180);
+    questionLines.forEach(line => {
+      if (y > pageHeight) { doc.addPage(); y = 20; }
+      doc.text(line, 20, y);
+      y += lineHeight;
+    });
+
+    // If code snippet exists, draw a code box
+    const codeMatch = q.question.match(/```[a-zA-Z]*\n([\s\S]*?)```/);
+    if (codeMatch) {
+      const code = codeMatch[1].trim().split('\n');
+      doc.setFont("courier", "normal");
+      doc.setFillColor(245, 245, 245);
+      doc.rect(18, y, 175, code.length * lineHeight + 4, "F");
+      y += 5;
+      code.forEach(line => {
+        if (y > pageHeight) { doc.addPage(); y = 20; }
+        doc.text(line, 22, y);
+        y += lineHeight;
+      });
+      y += 5;
+      doc.setFont("helvetica", "normal");
+    }
+
+    if (Array.isArray(q.options)) {
+      q.options.forEach(opt => {
+        const optLines = doc.splitTextToSize(opt, 170);
+        optLines.forEach(line => {
+          if (y > pageHeight) { doc.addPage(); y = 20; }
+          doc.text('   ' + line, 25, y);
+          y += lineHeight;
+        });
+      });
+    }
+    y += 3;
+  });
+
+  doc.save(`${latestData.subject}_${latestData.subtopic}_QuestionPaper.pdf`);
+});
+</script>
+
+</body>
+</html>
